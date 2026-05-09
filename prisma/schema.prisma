@@ -1,0 +1,444 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("MONGO_URL")
+}
+
+model User {
+  oid              String    @id @default(auto()) @map("_id") @db.ObjectId
+  id               String    @unique
+  name             String?
+  email            String    @unique
+  phone            String?
+  password         String
+  role             String    @default("user")
+  plan             String    @default("trial")
+  credits          Int       @default(0)
+  trialEndsAt      DateTime?
+  planStartedAt    DateTime?
+  planEndsAt       DateTime?
+  stripeCustomerId String?
+  cardBrand        String?
+  cardLast4        String?
+  cardExpMonth     Int?
+  cardExpYear      Int?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("users")
+}
+
+model Project {
+  oid          String   @id @default(auto()) @map("_id") @db.ObjectId
+  id           String   @unique
+  userId       String
+  businessName String
+  placeId      String
+  address      String?
+  latitude     Float
+  longitude    Float
+  primaryType  String?
+  gridSettings Json?
+  
+  // Internal AI Marketing Assets
+  clientSlug    String?   @unique
+  description   String?
+  industry      String?
+  keyFeatures   String[]
+  gmbLink       String?
+  brandColor    String    @default("#1E3A8A")
+  accentColor   String    @default("#EFF6FF")
+  heroImage     String?
+  scanCount     Int       @default(0)
+  reviewPageUrl String?
+  qrCodeUrl     String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@map("projects")
+}
+
+model Lead {
+  oid           String   @id @default(auto()) @map("_id") @db.ObjectId
+  id            String   @unique @default(uuid())
+  projectId     String
+  name          String
+  email         String
+  phone         String?
+  message       String?
+  source        String?  // e.g., "qr_scan" | "review_page"
+  createdAt     DateTime @default(now())
+
+  @@index([projectId])
+  @@map("leads")
+}
+
+model BusinessProfile {
+  oid          String   @id @default(auto()) @map("_id") @db.ObjectId
+  id           String   @unique @default(uuid())
+  userId       String   @unique            // one profile per user
+  businessName String
+  address      String
+  city         String
+  state        String
+  country      String   @default("India")
+  phone        String
+  website      String
+  category     String
+  description  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@map("business_profiles")
+}
+
+model CitationDirectory {
+  oid              String   @id @default(auto()) @map("_id") @db.ObjectId
+  id               String   @unique @default(uuid())
+  name             String
+  submissionUrl    String
+  hasApi           Boolean  @default(false)
+  apiConfig        Json?
+  requiresManual   Boolean  @default(true)
+  supportsBacklink Boolean  @default(true)
+  domainAuthority  Int?
+  country          String   @default("global")   // "India" | "global"
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  @@map("citation_directories")
+}
+
+model CitationSubmission {
+  oid           String    @id @default(auto()) @map("_id") @db.ObjectId
+  id            String    @unique @default(uuid())
+  userId        String
+  directoryId   String                             // references CitationDirectory.id
+  status        String    @default("not_started")  // not_started | in_progress | submitted | verified
+  listingUrl    String?
+  backlinkFound Boolean?
+  linkType      String?                            // dofollow | nofollow | null
+  lastCheckedAt DateTime?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  @@unique([userId, directoryId])
+  @@index([userId])
+  @@map("citation_submissions")
+}
+
+model Keyword {
+  oid       String   @id @default(auto()) @map("_id") @db.ObjectId
+  id        String   @unique
+  projectId String
+  keyword   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+  @@map("keywords")
+}
+
+model ScanJob {
+  oid                String    @id @default(auto()) @map("_id") @db.ObjectId
+  id                 String    @unique
+  projectId          String
+  keywordId          String
+  status             String    @default("queued")
+  processedPoints    Int       @default(0)
+  totalPoints        Int       @default(0)
+  gridSize           Int?
+  spacingMeters      Int?
+  searchRadiusMeters Int?
+  errorMessage       String?
+  createdAt          DateTime  @default(now())
+  startedAt          DateTime?
+  completedAt        DateTime?
+
+  @@index([projectId])
+  @@index([keywordId])
+  @@map("scan_jobs")
+}
+
+model ScanPoint {
+  oid       String   @id @default(auto()) @map("_id") @db.ObjectId
+  id        String   @unique
+  scanJobId String
+  rowIndex  Int
+  colIndex  Int
+  latitude  Float
+  longitude Float
+  createdAt DateTime @default(now())
+
+  @@index([scanJobId])
+  @@map("scan_points")
+}
+
+model ScanResult {
+  oid             String   @id @default(auto()) @map("_id") @db.ObjectId
+  id              String   @unique
+  scanPointId     String? // Optional for new structure
+  scanJobId       String
+  rowIndex        Int? // New coordinate field
+  colIndex        Int? // New coordinate field
+  latitude        Float? // New coordinate field
+  longitude       Float? // New coordinate field
+  found           Boolean
+  rank            Int?
+  competitorsJson String?
+  rawResultsJson  String?
+  errorMessage    String?
+  createdAt       DateTime @default(now())
+
+  @@index([scanJobId])
+  @@index([scanPointId])
+  @@index([scanJobId, rowIndex, colIndex])
+  @@map("scan_results")
+}
+
+model Payment {
+  oid                   String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId                String
+  provider              String
+  stripeSessionId       String?
+  stripeCustomerId      String?
+  stripePaymentIntentId String?
+  stripeInvoiceId       String?
+  razorpayPaymentId     String?
+  razorpayOrderId       String?
+  planId                String?
+  credits               Int
+  amountTotal           Int?
+  currency              String?
+  customerEmail         String?
+  paymentStatus         String?
+  status                String
+  cardBrand             String?
+  cardLast4             String?
+  cardExpMonth          Int?
+  cardExpYear           Int?
+  receiptUrl            String?
+  invoicePdf            String?
+  syncedManually        Boolean?
+  syncedAt              DateTime?
+  createdAt             DateTime  @default(now())
+
+  @@index([userId])
+  @@map("payments")
+}
+
+model BusinessAudit {
+  oid               String   @id @default(auto()) @map("_id") @db.ObjectId
+  id                String   @unique
+  projectId         String
+  auditDataJson     String
+  optimizationScore Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([projectId])
+  @@map("business_audits")
+}
+
+model GlobalSetting {
+  key       String   @id @map("_id")
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("global_settings")
+}
+
+// ─── SEOOS MODELS ────────────────────────────────────────────────────────────
+
+model WebsiteAuditRun {
+  oid          String   @id @default(auto()) @map("_id") @db.ObjectId
+  id           String   @unique
+  projectId    String
+  url          String
+  status       String   @default("pending") // pending | running | complete | failed
+  techScore    Int?
+  onPageScore  Int?
+  contentScore Int?
+  perfScore    Int?
+  schemaScore  Int?
+  totalIssues  Int?
+  suggestedKeywords Json?
+  errorMessage String?
+  createdAt    DateTime @default(now())
+  completedAt  DateTime?
+
+  @@index([projectId])
+  @@map("website_audit_runs")
+}
+
+model SEOIssue {
+  oid          String   @id @default(auto()) @map("_id") @db.ObjectId
+  id           String   @unique
+  auditRunId   String
+  projectId    String
+  type         String   // technical | on-page | content | performance | schema | local
+  severity     String   // critical | warning | info
+  title        String
+  description  String
+  pageUrl      String?
+  recommendation String?
+  status       String   @default("open") // open | in_progress | resolved | ignored
+  effort       String?  // low | medium | high
+  impact       String?  // low | medium | high
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([auditRunId])
+  @@index([projectId])
+  @@map("seo_issues")
+}
+
+model AIRecommendation {
+  oid            String   @id @default(auto()) @map("_id") @db.ObjectId
+  id             String   @unique
+  projectId      String
+  issueId        String?
+  type           String   // title | meta | h1 | faq | description | gbp_post | gbp_description | schema | content
+  pageUrl        String?
+  originalText   String?
+  suggestedText  String
+  reasoning      String?
+  confidenceScore Int?    // 0-100
+  riskScore      Int?     // 0-100
+  status         String   @default("pending") // pending | approved | rejected | edited
+  approvedText   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([projectId])
+  @@map("ai_recommendations")
+}
+
+model CitationRecord {
+  oid             String   @id @default(auto()) @map("_id") @db.ObjectId
+  id              String   @unique
+  projectId       String
+  // NAP Data
+  businessName    String
+  address         String?
+  city            String?
+  state           String?
+  zip             String?
+  country         String   @default("US")
+  phone           String?
+  website         String?
+  // Directory Info
+  directoryName   String
+  directoryUrl    String?
+  category        String?  // general | industry | local
+  // Status
+  status          String   @default("pending") // live | pending | failed | not_submitted
+  listingUrl      String?
+  submittedAt     DateTime?
+  verifiedAt      DateTime?
+  notes           String?
+  loginEmail      String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([projectId])
+  @@map("citation_records")
+}
+
+model SEOTask {
+  oid         String   @id @default(auto()) @map("_id") @db.ObjectId
+  id          String   @unique
+  projectId   String
+  issueId     String?
+  aiRecId     String?
+  title       String
+  description String?
+  type        String?  // technical | content | local | citation | gbp
+  status      String   @default("open") // open | in_progress | blocked | done
+  priority    String   @default("medium") // low | medium | high | urgent
+  assignedTo  String?  // userId
+  dueDate     DateTime?
+  completedAt DateTime?
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+  @@map("seo_tasks")
+}
+
+model SEOChangeLog {
+  oid         String   @id @default(auto()) @map("_id") @db.ObjectId
+  id          String   @unique
+  projectId   String
+  type        String   // website | gbp | citation | content | ranking | review
+  title       String
+  description String?
+  pageUrl     String?
+  beforeValue String?
+  afterValue  String?
+  recordedBy  String
+  happenedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@map("seo_change_logs")
+}
+
+
+model KeywordRank {
+  oid        String   @id @default(auto()) @map("_id") @db.ObjectId
+  id         String   @unique
+  projectId  String
+  keyword    String
+  rank       Int?
+  bestRank   Int?
+  searchEngine String  @default("google")
+  location    String?
+  device      String   @default("desktop")
+  url         String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectId, keyword])
+  @@map("keyword_ranks")
+}
+
+model SEOPerformance {
+  oid         String   @id @default(auto()) @map("_id") @db.ObjectId
+  id          String   @unique
+  projectId   String
+  date        DateTime
+  clicks      Int
+  impressions Int
+  ctr         Float
+  position    Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([projectId, date])
+  @@map("seo_performance")
+}
+
+model ReviewAsset {
+  oid          String   @id @default(auto()) @map("_id") @db.ObjectId
+  slug         String   @unique
+  name         String
+  description  String?
+  industry     String?
+  keyFeatures  String[]
+  gmbLink      String?
+  brandColor   String    @default("#1E3A8A")
+  accentColor  String    @default("#EFF6FF")
+  heroImage    String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("review_assets")
+}
