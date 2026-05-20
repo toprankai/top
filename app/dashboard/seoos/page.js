@@ -49,6 +49,7 @@ export default function SEOOSHomePage() {
     { icon: Sparkles, label: 'AI Builder', desc: 'AI Asset Studio', href: '/dashboard/seoos/ai-builder', color: 'text-indigo-600' },
     { icon: Sparkles, label: 'Review Generator', desc: 'Generate AI Review Pages', href: '/dashboard/seoos/review-generator', color: 'text-amber-600' },
     { icon: QrCode, label: 'QR Generator', desc: 'Trackable Dynamic QRs', href: '/dashboard/seoos/qr-generator', color: 'text-indigo-600' },
+    { icon: QrCode, label: 'Review QR (Places)', desc: 'Google review /r/ campaigns', href: '/dashboard/review-qr', color: 'text-emerald-600' },
     { icon: Sparkles, label: 'AI Assistant', desc: `${o?.pendingRecs || 0} pending approvals`, href: '/dashboard/seoos/ai-assistant', color: 'text-purple-600' },
     { icon: BarChart3, label: 'GBP Suite', desc: 'Google Business optimization', href: '/dashboard/seoos/gbp-suite', color: 'text-emerald-600' },
     { icon: TrendingUp, label: 'Keywords', desc: 'AI-powered clustering', href: '/dashboard/seoos/keywords', color: 'text-sky-600' },

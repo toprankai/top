@@ -1,15 +1,19 @@
 import { v4 as uuidv4 } from 'uuid'
 import { NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
+import NextAuth from 'next-auth'
 import { getServerSession } from 'next-auth'
+import { getToken } from 'next-auth/jwt'
 import { authOptions } from '@/lib/auth'
-import { searchBusinessByText, getPlaceDetails, searchKeywordAtPoint } from '@/lib/google-places'
+import { searchBusinessByText, getPlaceDetails, searchKeywordAtPoint, getGooglePlacesApiKey } from '@/lib/google-places'
 import { generateGrid, calculateAnalytics } from '@/lib/grid-utils'
 import { runScanJob } from '@/lib/scan-engine'
 import prisma from '@/lib/prisma'
 import redis from '@/lib/redis'
 import { rateLimit } from '@/lib/rate-limit'
-import { headers } from 'next/headers'
+
+/** Same handler as `app/api/auth/[...nextauth]/route.js`; used when dev (Turbopack) sends `/api/auth/*` here. */
+const nextAuthAppHandler = NextAuth(authOptions)
 
 let legacyProjectIndexCleanupAttempted = false
 
@@ -38,10 +42,30 @@ async function cleanupLegacyProjectClientSlugIndex() {
   }
 }
 
-// Get authenticated user
+// Get authenticated user (App Router: getServerSession can miss cookies in some route handlers)
 async function getAuthUser(request) {
   const session = await getServerSession(authOptions)
-  return session?.user || null
+  if (session?.user?.id) return session.user
+
+  try {
+    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
+    if (!token) return null
+    const id = token.id || token.sub
+    if (!id) return null
+    return {
+      id,
+      email: token.email || '',
+      name: token.name || '',
+      plan: token.plan || 'trial',
+      credits: token.credits ?? 0,
+      trialEndsAt: token.trialEndsAt || null,
+      planEndsAt: token.planEndsAt || null,
+      stripeCustomerId: token.stripeCustomerId || null,
+      role: token.role || 'user',
+    }
+  } catch {
+    return null
+  }
 }
 
 // ─── AUTOMATION HELPERS ──────────────────────────────────────────────────────
@@ -122,8 +146,14 @@ export async function OPTIONS() {
 async function handleRoute(request, props) {
   const params = await props.params
   const { path = [] } = params
-  const route = `/${path.join('/')}`
   const method = request.method
+
+  // Turbopack dev can incorrectly match `/api/auth/*` on this catch-all instead of `api/auth/[...nextauth]`.
+  if (path[0] === 'auth' && (method === 'GET' || method === 'POST')) {
+    return nextAuthAppHandler(request)
+  }
+
+  const route = `/${path.join('/')}`
 
   try {
     // ==================== PUBLIC ROUTES ====================
@@ -241,6 +271,14 @@ async function handleRoute(request, props) {
 
     // Search businesses
     if (route === '/google/search-business' && method === 'POST') {
+      if (!getGooglePlacesApiKey()) {
+        return handleCORS(
+          NextResponse.json(
+            { error: 'Google Places is not configured. Set GOOGLE_API_KEY or NEXT_PUBLIC_GOOGLE_API_KEY in your environment.' },
+            { status: 503 }
+          )
+        )
+      }
       // RATE LIMIT: 10 searches per 60 seconds
       const limiter = await rateLimit(currentUser.id, 'search-business', 10, 60)
       if (!limiter.success) {
@@ -264,13 +302,23 @@ async function handleRoute(request, props) {
         } catch (e) {}
       }
 
-      const results = await searchBusinessByText(query)
+      try {
+        const results = await searchBusinessByText(query)
 
-      if (redis && results?.length > 0) {
-        try { await redis.set(cacheKey, JSON.stringify(results), 'EX', 3600) } catch (e) {}
+        if (redis && results?.length > 0) {
+          try { await redis.set(cacheKey, JSON.stringify(results), 'EX', 3600) } catch (e) {}
+        }
+
+        return handleCORS(NextResponse.json({ results }))
+      } catch (e) {
+        console.error('[google/search-business]', e)
+        return handleCORS(
+          NextResponse.json(
+            { error: e?.message || 'Business search failed' },
+            { status: 502 }
+          )
+        )
       }
-
-      return handleCORS(NextResponse.json({ results }))
     }
 
     // Get place details

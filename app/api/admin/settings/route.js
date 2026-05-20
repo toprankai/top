@@ -34,7 +34,7 @@ const DEFAULT_SETTINGS = [
         key: "api_status",
         value: {
             googleMaps: !!process.env.GOOGLE_MAPS_API_KEY,
-            stripe: !!process.env.STRIPE_SECRET_KEY,
+            razorpay: !!(process.env.RAZORPAY_KEY_SECRET && (process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_API_KEY)),
             openai: !!process.env.OPENAI_API_KEY,
             mail: !!process.env.EMAIL_SERVER_PASSWORD
         }

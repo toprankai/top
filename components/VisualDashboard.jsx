@@ -112,9 +112,9 @@ const VisualDashboard = () => {
                 <Building2 className="w-5 h-5 text-blue-600" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-black text-slate-900 truncate">Uniconnect Immigration Services</p>
+                <p className="text-xs font-black text-slate-900 truncate">Radiance Unisex Salon & Spa</p>
                 <p className="text-[10px] text-slate-500 flex items-center gap-1 mt-0.5">
-                  <MapPin className="w-2.5 h-2.5" /> 1470 Hurontario St #100
+                  <MapPin className="w-2.5 h-2.5" /> 28th Rd, Bandra West, Mumbai 400050
                 </p>
               </div>
             </div>
@@ -127,7 +127,7 @@ const VisualDashboard = () => {
               <input 
                 type="text" 
                 readOnly 
-                value={view === 'after' ? "immigration services near me" : "immigration near me"} 
+                value={view === 'after' ? "best unisex salon near me" : "hair salon bandra west"} 
                 className="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-100"
               />
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -192,7 +192,7 @@ const VisualDashboard = () => {
                   </div>
                   <div className="flex justify-between items-center text-[10px]">
                     <span className="text-white/60 font-medium">Radius</span>
-                    <span className="text-white font-black">3.0 mi</span>
+                    <span className="text-white font-black">5 km</span>
                   </div>
                 </div>
               </div>
@@ -207,7 +207,7 @@ const VisualDashboard = () => {
         <div className="absolute inset-0 pointer-events-none">
           <iframe
             title="Real Map Background"
-            src="https://maps.google.com/maps?q=1470+Hurontario+St,+Mississauga,+Ontario+L5G+3H4&t=&z=13&ie=UTF8&iwloc=&output=embed"
+            src="https://maps.google.com/maps?q=28th+Road,+Bandra+West,+Mumbai+400050&t=&z=14&ie=UTF8&iwloc=&output=embed"
             width="100%"
             height="100%"
             style={{ border: 0, filter: 'grayscale(0.5) contrast(1.1) opacity(0.6)' }}

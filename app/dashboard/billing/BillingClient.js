@@ -2,10 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { useSearchParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
-  Check, CreditCard, Zap, Loader2, ExternalLink, RefreshCw,
+  Check, CreditCard, Zap, Loader2, RefreshCw,
   Download, Mail, Shield, Calendar, Receipt, ChevronRight,
   Wallet, Clock, BadgeCheck,
   Settings,
@@ -14,85 +13,48 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-export default function BillingClient({ session: initialSession, isIndia: isIndiaProp }) {
+const RAZORPAY_KEY_ID = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
+
+const PLAN_TIERS = {
+  plan_trial: 0,
+  plan_lite: 1,
+  plan_pro: 2,
+  plan_pro_plus: 3,
+}
+
+function normalizePlanKey(planId) {
+  const id = (planId || 'plan_trial').toLowerCase()
+  if (id.includes('pro_plus') || id.includes('pro plus')) return 'plan_pro_plus'
+  if (id.includes('pro')) return 'plan_pro'
+  if (id.includes('lite') || id.includes('advance')) return 'plan_lite'
+  if (id.includes('trial')) return 'plan_trial'
+  return 'plan_trial'
+}
+
+function getPlanTier(planId) {
+  return PLAN_TIERS[normalizePlanKey(planId)] ?? 0
+}
+
+export default function BillingClient({ session: initialSession }) {
   const { data: session, update } = useSession()
-  const router = useRouter()
-  const searchParams = useSearchParams()
   const [loading, setLoading] = useState(false)
-  const [hasRefreshed, setHasRefreshed] = useState(false)
   const [billingData, setBillingData] = useState(null)
   const [billingLoading, setBillingLoading] = useState(true)
-  const [isIndia, setIsIndia] = useState(isIndiaProp)
 
-  // Fetch billing details on mount and periodically
   useEffect(() => {
     fetchBillingDetails()
     const interval = setInterval(fetchBillingDetails, 30000)
-
-    // Client-side geo detection fallback
-    fetch('https://ipapi.co/json/')
-      .then(res => res.json())
-      .then(data => {
-        if (data.country_code) {
-          setIsIndia(data.country_code === 'IN')
-        }
-      })
-      .catch(err => console.error('Geo detection failed:', err))
-
     return () => clearInterval(interval)
   }, [])
-
-  // Refresh session when coming back from successful checkout
-  useEffect(() => {
-    const success = searchParams.get('success')
-    const sessionId = searchParams.get('session_id')
-
-    if (success === 'true' && !hasRefreshed) {
-      //console.log('Detected successful checkout, triggering sync...')
-      setHasRefreshed(true)
-      toast.success('Payment successful! Your account is being updated...')
-
-      const performSync = async () => {
-        try {
-          const syncRes = await fetch(`/api/stripe/sync${sessionId ? `?session_id=${sessionId}` : ''}`, {
-            method: 'POST',
-            cache: 'no-store'
-          })
-          const syncData = await syncRes.json()
-          //console.log('Sync result:', syncData)
-
-          if (syncData.synced) {
-            toast.success(`Synced! Added ${syncData.newCredits} credits.`)
-          }
-        } catch (e) {
-          console.error('Auto-sync failed:', e)
-        } finally {
-          await update()
-          fetchBillingDetails()
-          // Clean up URL after successful sync
-          router.replace('/dashboard/billing', { scroll: false })
-        }
-      }
-
-      const timer = setTimeout(performSync, 1500)
-      return () => clearTimeout(timer)
-    }
-  }, [searchParams, update, hasRefreshed, router])
 
   const handleManualSync = async () => {
     setLoading('sync')
     try {
-      const res = await fetch('/api/stripe/sync', { method: 'POST', cache: 'no-store' })
-      const data = await res.json()
-      if (data.synced) {
-        toast.success(data.message)
-        await update()
-        fetchBillingDetails()
-      } else {
-        toast.info(data.message || 'All payments are already up to date.')
-      }
+      await update()
+      await fetchBillingDetails()
+      toast.success('Account refreshed.')
     } catch (err) {
-      toast.error('Failed to sync payments.')
+      toast.error('Failed to refresh account.')
     } finally {
       setLoading(null)
     }
@@ -100,7 +62,7 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
 
   const fetchBillingDetails = async () => {
     try {
-      const res = await fetch(`/api/stripe/billing?t=${Date.now()}`)
+      const res = await fetch(`/api/razorpay/billing?t=${Date.now()}`)
       if (res.ok) {
         const data = await res.json()
         setBillingData(data)
@@ -122,6 +84,7 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
       id: 'plan_trial',
       name: "7-Day Trial",
       desc: "Try it for free",
+      duration: '7 Days',
       icon: <Settings className="w-6 h-6 text-blue-500" />,
       price: "0",
       priceUSD: 0,
@@ -134,6 +97,7 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
       id: 'plan_lite',
       name: "Advance",
       desc: "Best for Local Owners",
+      duration: '1 Month',
       icon: <Rocket className="w-6 h-6 text-blue-600" />,
       price: "499",
       priceUSD: 499,
@@ -148,6 +112,7 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
       id: 'plan_pro',
       name: "Pro",
       desc: "Best for Agency Owners",
+      duration: '3 Months',
       icon: <Trophy className="w-6 h-6 text-blue-600" />,
       price: "799",
       priceUSD: 799,
@@ -160,6 +125,7 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
       id: 'plan_pro_plus',
       name: "Pro Plus",
       desc: "Best for Agency Owners",
+      duration: '3 Months',
       icon: <Rocket className="w-6 h-6 text-blue-600" />,
       price: "1299",
       priceUSD: 1299,
@@ -223,6 +189,36 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
   const isExpired = (expiryDate && expiryDate < new Date()) || (user?.credits <= 0)
   const hasPaid = billingData?.paymentHistory?.length > 0
 
+  const currentPlanKey = normalizePlanKey(userPlan)
+  const currentTier = getPlanTier(userPlan)
+  const isMaxPlan = currentTier >= PLAN_TIERS.plan_pro_plus && !isExpired
+
+  const availablePlans = plans.filter((plan) => {
+    if (plan.id === 'plan_trial') {
+      return !hasPaid && currentTier === 0 && isTrial
+    }
+
+    const planTier = getPlanTier(plan.id)
+
+    if (!isExpired) {
+      if (planTier < currentTier) return false
+      if (planTier === currentTier) return plan.id === currentPlanKey
+      return planTier > currentTier
+    }
+
+    return plan.id !== 'plan_trial'
+  })
+
+  const getCheckoutLabel = (plan) => {
+    const planTier = getPlanTier(plan.id)
+    if (plan.id === currentPlanKey && !isExpired) {
+      const creditsLabel = plan.features.find((f) => /credits/i.test(f)) || plan.features[0]
+      return `Top up — ${creditsLabel}`
+    }
+    if (planTier > currentTier) return `Upgrade to ${plan.name}`
+    return hasPaid ? `Buy ${plan.name}` : `Get ${plan.name}`
+  }
+
   const loadRazorpay = () => {
     return new Promise((resolve) => {
       const script = document.createElement('script')
@@ -233,64 +229,66 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
     })
   }
 
-  const handleManageBilling = async () => {
-    setLoading('portal')
-    try {
-      const res = await fetch('/api/stripe/portal', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Failed to open billing portal')
-      window.location.href = data.url
-    } catch (err) {
-      toast.error(err.message)
-    } finally {
-      setLoading(null)
-    }
-  }
-
-
   const handleCheckout = async (plan) => {
+    if (!RAZORPAY_KEY_ID) {
+      toast.error('Razorpay is not configured. Add NEXT_PUBLIC_RAZORPAY_KEY_ID to your env.')
+      return
+    }
+
     setLoading(plan.id)
     try {
       const res = await fetch('/api/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ planId: plan.id, isIndia })
+        body: JSON.stringify({ planId: plan.id }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Checkout failed')
 
-      if (isIndia) {
-        const resLoaded = await loadRazorpay()
-        if (!resLoaded) {
-          toast.error('Razorpay SDK failed to load. Are you online?')
-          setLoading(false)
-          return
-        }
-        const options = {
-          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-          amount: data.amount,
-          currency: data.currency,
-          name: 'Local Rank Heatmap',
-          description: `Subscribe to ${plan.name} Plan`,
-          order_id: data.id,
-          handler: function (response) {
-            toast.success('Payment successful! Your account is being upgraded.')
-            setTimeout(async () => {
-              await update()
-              fetchBillingDetails()
-            }, 2000)
-          },
-          prefill: {
-            name: currentSession?.user?.name || '',
-            email: currentSession?.user?.email || '',
-          },
-          theme: { color: '#2563EB' }
-        }
-        const paymentObject = new window.Razorpay(options)
-        paymentObject.open()
-      } else {
-        window.location.href = data.url
+      const resLoaded = await loadRazorpay()
+      if (!resLoaded) {
+        toast.error('Razorpay SDK failed to load. Are you online?')
+        return
       }
+
+      const options = {
+        key: RAZORPAY_KEY_ID,
+        amount: data.amount,
+        currency: data.currency,
+        name: 'TopRank AI',
+        description: `Subscribe to ${plan.name} Plan`,
+        order_id: data.id,
+        handler: async function (response) {
+          toast.success('Payment received! Activating your plan...')
+          try {
+            const verifyRes = await fetch('/api/razorpay/verify', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(response),
+            })
+            const verifyData = await verifyRes.json()
+            if (!verifyRes.ok) throw new Error(verifyData.error || 'Verification failed')
+            if (verifyData.synced) {
+              toast.success(`Added ${verifyData.creditsAdded} credits to your account.`)
+            } else if (verifyData.alreadyRecorded) {
+              toast.info('Payment already applied to your account.')
+            }
+          } catch (e) {
+            console.error('Verify failed:', e)
+            toast.error('Payment received but activation failed. Use Refresh Credits or contact support.')
+          } finally {
+            await update()
+            fetchBillingDetails()
+          }
+        },
+        prefill: {
+          name: currentSession?.user?.name || '',
+          email: currentSession?.user?.email || '',
+        },
+        theme: { color: '#2563EB' },
+      }
+      const paymentObject = new window.Razorpay(options)
+      paymentObject.open()
     } catch (err) {
       console.error(err)
       toast.error(err.message || 'Failed to initiate checkout.')
@@ -300,12 +298,12 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
   }
 
   const formatCurrency = (amount, currency) => {
-    if (!amount) return isIndia ? '₹0' : '$0.00'
+    if (!amount) return '₹0'
     const value = amount / 100
-    if (currency?.toUpperCase() === 'INR') {
-      return `₹${value.toLocaleString('en-IN')}`
+    if (currency?.toUpperCase() === 'USD') {
+      return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     }
-    return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    return `₹${value.toLocaleString('en-IN')}`
   }
 
   const formatDate = (date) => {
@@ -408,18 +406,6 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
               Refresh Credits
             </Button>
 
-            {!isIndia && user?.stripeCustomerId && (
-              <Button
-                variant="outline"
-                className="h-10 px-5 rounded-xl font-bold gap-2 border-blue-200 hover:bg-blue-100 hover:text-blue-700 text-sm"
-                onClick={handleManageBilling}
-                isLoading={loading === 'portal'}
-                cooldown={5000}
-              >
-                <ExternalLink className="w-4 h-4" />
-                Manage Billing
-              </Button>
-            )}
           </div>
         </div>
       </div>
@@ -461,16 +447,6 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
                     Active
                   </span>
                 </div>
-                {!isIndia && currentSession?.user?.stripeCustomerId && (
-                  <Button
-                    variant="ghost" size="sm"
-                    className="w-full mt-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 text-xs font-bold gap-1.5"
-                    onClick={handleManageBilling}
-                  >
-                    <CreditCard className="w-3.5 h-3.5" />
-                    Update Payment Method
-                  </Button>
-                )}
               </div>
             ) : (
               <div className="text-center py-6 text-slate-400">
@@ -505,7 +481,7 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
               </div>
               <div className="flex justify-between items-center py-3 border-b border-slate-100">
                 <span className="text-sm text-slate-500 font-medium">Payment Mode</span>
-                <span className="text-sm font-bold text-slate-900 capitalize">{isIndia ? 'Razorpay (INR)' : 'Stripe (USD)'}</span>
+                <span className="text-sm font-bold text-slate-900 capitalize">Razorpay (INR)</span>
               </div>
               <div className="flex justify-between items-center py-3">
                 <span className="text-sm text-slate-500 font-medium">Billing Email</span>
@@ -592,13 +568,54 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
 
       {/* ━━━ Pricing Cards ━━━ */}
       <div>
-        <h2 className="text-xl font-black text-slate-900 mb-1">{hasPaid ? 'Add More Credits' : 'Choose a Plan'}</h2>
-        <p className="text-sm text-slate-500 mb-6">Select a plan to {hasPaid ? 'top up your' : 'get'} credits.</p>
-
-        <div className="grid md:grid-cols-2 gap-6">
-          {plans.map((plan) => (
-            <div key={plan.id} className={`bg-white rounded-[2rem] p-8 border ${plan.popular ? 'border-blue-600 shadow-xl relative scale-[1.02]' : 'border-slate-200'} flex flex-col relative overflow-hidden`}>
-              {/* Ribbon */}
+        {isMaxPlan && availablePlans.length <= 1 ? (
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-8">
+            <div className="text-center mb-6">
+              <BadgeCheck className="w-12 h-12 text-blue-600 mx-auto mb-4" />
+              <h2 className="text-xl font-black text-slate-900 mb-2">You&apos;re on our highest plan</h2>
+              <p className="text-sm text-slate-600 max-w-md mx-auto">
+                Trial, Advance, and Pro are hidden — you already have Pro Plus until{' '}
+                {expiryDate?.toLocaleDateString()}.
+              </p>
+            </div>
+            {availablePlans.map((plan) => (
+              <div key={plan.id} className="max-w-md mx-auto">
+                <Button
+                  onClick={() => handleCheckout(plan)}
+                  isLoading={loading === plan.id}
+                  cooldown={5000}
+                  className="w-full h-12 rounded-xl font-bold bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  {getCheckoutLabel(plan)} (₹{plan.priceINR.toLocaleString('en-IN')})
+                </Button>
+              </div>
+            ))}
+          </div>
+        ) : availablePlans.length > 0 ? (
+          <>
+            <h2 className="text-xl font-black text-slate-900 mb-1">
+              {isExpired ? 'Renew or upgrade' : hasPaid ? 'Upgrade or add credits' : 'Choose a plan'}
+            </h2>
+            <p className="text-sm text-slate-500 mb-6">
+              {isExpired
+                ? 'Your subscription expired. Pick a plan to restore access.'
+                : 'Plans below your current tier are hidden.'}
+            </p>
+            <div className="grid md:grid-cols-2 gap-6">
+              {availablePlans.map((plan) => {
+                const isCurrentPlan = plan.id === currentPlanKey && !isExpired
+                return (
+                  <div
+                    key={plan.id}
+                    className={`bg-white rounded-[2rem] p-8 border flex flex-col relative overflow-hidden ${
+                      isCurrentPlan
+                        ? 'border-emerald-500 ring-2 ring-emerald-100'
+                        : plan.popular
+                          ? 'border-blue-600 shadow-xl relative scale-[1.02]'
+                          : 'border-slate-200'
+                    }`}
+                  >
               {plan.ribbon && (
                 <div className="absolute top-0 right-0 w-24 h-24 pointer-events-none z-10">
                   <div className="bg-blue-600 text-white text-[9px] font-black uppercase tracking-widest py-1 w-32 text-center absolute top-5 right-[-34px] rotate-45 shadow-sm">
@@ -616,7 +633,12 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
                 </div>
               )}
 
-              {plan.popular && (
+              {isCurrentPlan && (
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full">
+                  Current plan
+                </div>
+              )}
+              {plan.popular && !isCurrentPlan && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full">
                   Most Popular
                 </div>
@@ -625,9 +647,9 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
               <h3 className="text-2xl font-black text-slate-900 mb-2">{plan.name}</h3>
               <div className="flex items-baseline gap-1 mb-6">
                 <span className="text-4xl font-black text-slate-900">
-                  {isIndia ? '₹' : '$'}{isIndia ? plan.priceINR.toLocaleString('en-IN') : plan.priceUSD}
+                  ₹{plan.priceINR.toLocaleString('en-IN')}
                 </span>
-                <span className="text-slate-500 font-bold text-sm">/ {plan.duration || '7 Days'}</span>
+                <span className="text-slate-500 font-bold text-sm">/ {plan.duration}</span>
               </div>
 
               <div className="space-y-3 mb-8 flex-1">
@@ -645,19 +667,28 @@ export default function BillingClient({ session: initialSession, isIndia: isIndi
                 onClick={() => handleCheckout(plan)}
                 isLoading={loading === plan.id}
                 cooldown={5000}
-                className={`w-full h-12 rounded-xl font-bold text-base transition-all ${plan.popular
-                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
-                  }`}
+                disabled={plan.id === 'plan_trial'}
+                className={`w-full h-12 rounded-xl font-bold text-base transition-all ${
+                  isCurrentPlan || plan.popular
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-500/20'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-900'
+                }`}
               >
                 <span className="flex items-center justify-center gap-2">
                   <CreditCard className="w-4 h-4" />
-                  {hasPaid ? `Buy ${plan.name}` : `Upgrade to ${plan.name}`}
+                  {getCheckoutLabel(plan)}
                 </span>
               </Button>
             </div>
-          ))}
-        </div>
+                )
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-center">
+            <p className="text-sm text-slate-600 font-medium">No upgrade options available for your current plan.</p>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -92,6 +92,7 @@ export default function DashboardLayout({ children }) {
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { name: 'Projects', href: '/dashboard/projects', icon: FolderKanban },
+    { name: 'Review QR', href: '/dashboard/review-qr', icon: QrCode },
     { name: 'Audit', href: '/dashboard/audit', icon: ShieldCheck },
     { name: 'Reports', href: '/dashboard/reports', icon: FileText },
     { name: 'Citations', href: '/dashboard/citations', icon: Building2 },

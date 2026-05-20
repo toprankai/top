@@ -1,45 +1,28 @@
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import Stripe from 'stripe'
-import Razorpay from 'razorpay'
-import prisma from '@/lib/prisma'
+import { getRazorpayClient, isRazorpayConfigured } from '@/lib/razorpay'
+import { resolveUserFromSession } from '@/lib/resolve-session-user'
 
-// Initialize SDKs only if keys are present to avoid startup crashes
-const stripe = process.env.STRIPE_SECRET_KEY
-  ? new Stripe(process.env.STRIPE_SECRET_KEY)
-  : null
-
-const razorpay = (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET)
-  ? new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID,
-    key_secret: process.env.RAZORPAY_KEY_SECRET
-  })
-  : null
-
-// Define plan pricing securely on the server
 const PLANS = {
-  'plan_lite': {
-    priceUSD: 499,
+  plan_lite: {
     priceINR: 8000,
     credits: 1200,
     name: 'Advance Plan',
-    durationMonths: 1
+    durationMonths: 1,
   },
-  'plan_pro': {
-    priceUSD: 799,
+  plan_pro: {
     priceINR: 40000,
     credits: 2400,
     name: 'Pro Plan',
-    durationMonths: 3
+    durationMonths: 3,
   },
-  'plan_pro_plus': {
-    priceUSD: 1299,
+  plan_pro_plus: {
     priceINR: 60000,
     credits: 5000,
     name: 'Pro Plus',
-    durationMonths: 3
-  }
+    durationMonths: 3,
+  },
 }
 
 export async function POST(request) {
@@ -49,9 +32,8 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    let { planId, isIndia } = await request.json()
-    
-    // Normalize planId to handle typos/variations from frontend
+    let { planId } = await request.json()
+
     const id = (planId || '').toLowerCase()
     if (id.includes('lite') || id.includes('advance')) {
       planId = 'plan_lite'
@@ -60,121 +42,49 @@ export async function POST(request) {
     } else if (id.includes('pro')) {
       planId = 'plan_pro'
     }
-    
+
     const plan = PLANS[planId]
 
     if (!plan) {
       return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
     }
 
-    if (isIndia) {
-      // RAZORPAY FLOW
-      if (!razorpay) {
-        return NextResponse.json({ error: 'Razorpay is not configured' }, { status: 500 })
-      }
-
-      const options = {
-        amount: plan.priceINR * 100,
-        currency: 'INR',
-        receipt: `rcpt_${session.user.id}_${Date.now()}`,
-        notes: {
-          userId: session.user.id,
-          planId: planId,
-          credits: plan.credits
-        }
-      }
-
-      const order = await razorpay.orders.create(options)
-
-      return NextResponse.json({
-        id: order.id,
-        amount: order.amount,
-        currency: order.currency
-      })
-
-    } else {
-      // STRIPE FLOW
-      if (!stripe) {
-        return NextResponse.json({ error: 'Stripe is not configured' }, { status: 500 })
-      }
-
-      const user = await prisma.user.findUnique({ where: { id: session.user.id } })
-
-      // Create or reuse Stripe customer so cards & invoices persist
-      let customerId = user?.stripeCustomerId
-      if (!customerId) {
-        const customer = await stripe.customers.create({
-          email: session.user.email,
-          name: session.user.name || session.user.email.split('@')[0],
-          metadata: { userId: session.user.id }
-        })
-        customerId = customer.id
-        await prisma.user.update({
-          where: { id: session.user.id },
-          data: { stripeCustomerId: customerId }
-        })
-      }
-
-      const sessionConfig = {
-        payment_method_types: ['card'],
-        customer: customerId,
-        client_reference_id: session.user.id,
-        payment_intent_data: {
-          setup_future_usage: 'on_session',
-        },
-        invoice_creation: {
-          enabled: true,
-        },
-        metadata: {
-          userId: session.user.id,
-          planId: planId,
-          credits: plan.credits
-        },
-        line_items: [
-          {
-            price_data: {
-              currency: 'usd',
-              product_data: {
-                name: plan.name,
-                description: `${plan.credits} Local Rank Heatmap Credits`,
-              },
-              unit_amount: plan.priceUSD * 100,
-            },
-            quantity: 1,
-          },
-        ],
-        mode: 'payment',
-        allow_promotion_codes: true,
-        success_url: `${process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin')}/dashboard/billing?success=true&session_id={CHECKOUT_SESSION_ID}&userId=${session.user.id}`,
-        cancel_url: `${process.env.NEXT_PUBLIC_APP_URL || request.headers.get('origin')}/dashboard/billing?canceled=true`,
-      }
-
-      let checkoutSession
-      try {
-        checkoutSession = await stripe.checkout.sessions.create(sessionConfig)
-      } catch (stripeError) {
-        if (customerId && (stripeError.code === 'resource_missing' || stripeError.raw?.code === 'resource_missing')) {
-          const customer = await stripe.customers.create({
-            email: session.user.email,
-            name: session.user.name || session.user.email.split('@')[0],
-            metadata: { userId: session.user.id }
-          })
-          customerId = customer.id
-          await prisma.user.update({
-            where: { id: session.user.id },
-            data: { stripeCustomerId: customerId }
-          })
-          sessionConfig.customer = customerId
-          checkoutSession = await stripe.checkout.sessions.create(sessionConfig)
-        } else {
-          throw stripeError
-        }
-      }
-
-      return NextResponse.json({ url: checkoutSession.url })
+    if (!isRazorpayConfigured()) {
+      return NextResponse.json({ error: 'Razorpay is not configured' }, { status: 500 })
     }
+
+    const dbUser = await resolveUserFromSession(session)
+    if (!dbUser) {
+      return NextResponse.json({ error: 'User account not found. Please sign out and sign in again.' }, { status: 404 })
+    }
+
+    const razorpay = getRazorpayClient()
+    // Razorpay receipt max length is 40 characters
+    const receipt = `rcpt_${Date.now().toString(36)}_${session.user.id.slice(-6)}`.slice(0, 40)
+    const order = await razorpay.orders.create({
+      amount: plan.priceINR * 100,
+      currency: 'INR',
+      receipt,
+      notes: {
+        userId: dbUser.id,
+        planId,
+        credits: String(plan.credits),
+        email: dbUser.email || '',
+      },
+    })
+
+    return NextResponse.json({
+      id: order.id,
+      amount: order.amount,
+      currency: order.currency,
+    })
   } catch (error) {
+    const message =
+      error?.error?.description ||
+      error?.description ||
+      error?.message ||
+      'Failed to create checkout session'
     console.error('Checkout error:', error)
-    return NextResponse.json({ error: 'Failed to create checkout session' }, { status: 500 })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }

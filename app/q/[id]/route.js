@@ -35,6 +35,11 @@ export async function GET(request, { params }) {
       return NextResponse.redirect(new URL(`/review/${slug}`, request.url));
     }
 
+    const campaign = await db.collection('review_qr_campaigns').findOne({ slug: id });
+    if (campaign?.slug) {
+      return NextResponse.redirect(new URL(`/r/${campaign.slug}`, request.url));
+    }
+
     // 3. Fallback: Not Found
     console.warn(`QR Redirection: No match found for ID "${id}"`);
     return NextResponse.redirect(new URL('/', request.url));

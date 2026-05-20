@@ -369,12 +369,23 @@ export default function NewProjectPage() {
       const response = await fetch('/api/google/search-business', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ query: searchQuery })
       })
 
-      if (!response.ok) throw new Error('Search failed')
+      const data = await response.json().catch(() => ({}))
 
-      const data = await response.json()
+      if (!response.ok) {
+        const msg =
+          data?.error ||
+          (response.status === 401
+            ? 'Please sign in again to search businesses.'
+            : response.status === 429
+              ? 'Too many searches. Try again in a minute.'
+              : `Search failed (${response.status})`)
+        throw new Error(msg)
+      }
+
       setSearchResults(data.results || [])
       
       if (data.results?.length === 0) {
@@ -382,7 +393,7 @@ export default function NewProjectPage() {
       }
     } catch (error) {
       console.error('Search error:', error)
-      toast.error('Failed to search business')
+      toast.error(error?.message || 'Failed to search business')
     } finally {
       setSearching(false)
     }

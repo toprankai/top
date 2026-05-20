@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/prisma'
+import { resolveUserFromSession } from '@/lib/resolve-session-user'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,15 +13,17 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const user = await prisma.user.findUnique({ where: { id: session.user.id } })
+    const user = await resolveUserFromSession(session)
 
     if (!user) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'User account not found. Please sign out and sign in again.' },
+        { status: 404 }
+      )
     }
 
-    // Get payment history from DB (includes card info, receipt URLs, invoice PDFs)
     const payments = await prisma.payment.findMany({
-      where: { userId: session.user.id },
+      where: { userId: user.id },
       orderBy: { createdAt: 'desc' },
       take: 20
     })
